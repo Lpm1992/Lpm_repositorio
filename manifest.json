@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Bot Descarga XML SRI (Simula Clic Humano)",
+  "version": "1.8",
+  "description": "Bot que simula clics humanos (mousedown, mouseup, click) para avanzar páginas.",
+  "permissions": ["downloads"],
+  "host_permissions": ["https://*.sri.gob.ec/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://*.sri.gob.ec/*"],
+      "js": ["content.js"]
+    }
+  ],
+  "icons": {
+    "128": "icon.png"
+  }
+}
