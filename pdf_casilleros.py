@@ -151,6 +151,20 @@ def extraer_valor_por_casillero(texto: str, codigo: str, codigos_validos: set[st
     if matches:
         return limpiar_numero(matches[0])
 
+    # Fallback específico para 609 (caso observado en PDFs 2025):
+    # algunos archivos llegan sin los 2 decimales completos por OCR.
+    if codigo == "609":
+        patron_609_fallback = re.compile(
+            r"(?<!\d)609\s*([+-]?(?:\d{1,3}(?:[\.,]\d{3})*|\d+)(?:[\.,]\d{1,2})?)"
+        )
+        for token in patron_609_fallback.findall(texto_norm):
+            token_limpio = token.strip(".,;:)")
+            if not token_limpio:
+                continue
+            if token_limpio.isdigit() and len(token_limpio) == 3 and token_limpio in codigos_validos:
+                continue
+            return limpiar_numero(token_limpio)
+
     return None
 
 
