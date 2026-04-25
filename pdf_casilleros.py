@@ -147,14 +147,27 @@ def extraer_valor_por_casillero(texto: str, codigo: str, codigos_validos: set[st
         dec = token[idx + 1:]
         return len(dec) if dec.isdigit() else 99
 
-    # Buscar todas las apariciones del código y probar candidatos numéricos cercanos.
+    # Buscar todas las apariciones del código y probar candidatos muy cercanos.
     apariciones = list(re.finditer(rf"(?<!\d){codigo}", texto))
     for aparicion in apariciones:
         inicio = aparicion.end()
-        ventana = texto[inicio:inicio + 90]
+        ventana = texto[inicio:inicio + 35]
+
+        # Si aparece en una fórmula tipo +521+534+..., ignorar esta aparición.
+        if re.match(r"^\s*[\+\-]\d{3}", ventana):
+            continue
 
         # Todos los tokens numéricos cercanos (incluye casos pegados al código).
-        for token_match in re.finditer(r"[+-]?\d[\d\.,]*", ventana):
+        for idx_token, token_match in enumerate(re.finditer(r"[+-]?\d[\d\.,]*", ventana)):
+            # Limitar cantidad de tokens inspeccionados para evitar saltar
+            # a montos lejanos de otras columnas.
+            if idx_token >= 3:
+                break
+
+            # Si el token está demasiado lejos del código, no tomarlo.
+            if token_match.start() > 16:
+                continue
+
             token = token_match.group(0).strip(".,;:)")
             if not token:
                 continue
