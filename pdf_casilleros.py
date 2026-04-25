@@ -166,6 +166,41 @@ def extraer_casilleros_desde_pagina_tres(texto_pagina_tres: str, codigos: list[s
     return encontrados
 
 
+def extraer_valor_por_casillero(texto: str, codigo: str, codigos_validos: set[str]) -> Optional[float]:
+    """Extrae el valor de un casillero evitando confundirlo con otros códigos.
+
+    Reglas:
+    - Prioriza valores decimales (ej. 31.85, 1.234,56).
+    - Soporta valores pegados al código (ej. 605103.88).
+    - Si solo encuentra un entero de 3 dígitos que coincide con otro casillero, lo descarta.
+    """
+    # 1) Caso pegado al código con decimal: 605103.88
+    patron_pegado_decimal = re.compile(
+        rf"(?<!\d){codigo}([+-]?(?:\d{{1,3}}(?:[\.,]\d{{3}})+|\d+)(?:[\.,]\d{{1,4}}))"
+    )
+    match = patron_pegado_decimal.search(texto)
+    if match:
+        return limpiar_numero(match.group(1))
+
+    # 2) Código seguido de separador + valor decimal.
+    patron_con_sep_decimal = re.compile(
+        rf"(?<!\d){codigo}\b[\s:\-\.]*([+-]?(?:\d{{1,3}}(?:[\.,]\d{{3}})+|\d+)(?:[\.,]\d{{1,4}}))"
+    )
+    match = patron_con_sep_decimal.search(texto)
+    if match:
+        return limpiar_numero(match.group(1))
+
+    # 3) Fallback entero (si no hay decimal). Evitar tomar otro código por error (ej: 412).
+    patron_entero = re.compile(rf"(?<!\d){codigo}\b[\s:\-\.]*([+-]?\d+)\b")
+    for match in patron_entero.finditer(texto):
+        entero = match.group(1)
+        if len(entero) == 3 and entero in codigos_validos:
+            continue
+        return limpiar_numero(entero)
+
+    return None
+
+
 def procesar_declaraciones(carpeta: str) -> tuple[dict, list[str]]:
     casilleros = [
         "411", "421", "510", "520", "511", "521", "512", "522", "513", "523", "514", "524", "515", "525",
@@ -175,6 +210,7 @@ def procesar_declaraciones(carpeta: str) -> tuple[dict, list[str]]:
 
     datos_por_anio: dict[str, dict] = {}
     advertencias: list[str] = []
+    codigos_validos = set(casilleros)
 
     total_archivos = sum(
         1
@@ -235,14 +271,12 @@ def procesar_declaraciones(carpeta: str) -> tuple[dict, list[str]]:
                     )
                     continue
 
-                # Admite montos con separadores de miles y decimales mixtos.
-                patron = re.compile(
-                    r"\b(\d{3})\b\s*[\n\r:\-]*\s*([+-]?(?:\d{1,3}(?:[\.,]\d{3})+|\d+)(?:[\.,]\d{1,2})?)"
-                )
-
-                for cod, valor in patron.findall(texto_1_2_3):
-                    if cod in datos_por_anio[anio]:
-                        datos_por_anio[anio][cod][mes_detectado] = limpiar_numero(valor)
+                # Extraer valor por casillero de forma individual para evitar cruces
+                # de códigos (ej: casillero 411 tomando 412 por error).
+                for cod in casilleros:
+                    valor_cod = extraer_valor_por_casillero(texto_1_2_3, cod, codigos_validos)
+                    if valor_cod is not None:
+                        datos_por_anio[anio][cod][mes_detectado] = valor_cod
 
                 # Corrección específica para página 3:
                 # extraer nombre + casillero + valor (incluso cuando están pegados).
@@ -252,9 +286,10 @@ def procesar_declaraciones(carpeta: str) -> tuple[dict, list[str]]:
                     if cod in datos_por_anio[anio]:
                         datos_por_anio[anio][cod][mes_detectado] = detalle["VALOR"]
 
-                # Refuerzo para casillero 564.
+                # Refuerzo extra para casillero 564 (siempre debe intentar leerse de la línea
+                # "... 563 564 <valor>", por ejemplo 31.85).
                 match_564 = re.search(
-                    r"\b564\b\s*[\n\r:\-]*\s*([+-]?(?:\d{1,3}(?:[\.,]\d{3})+|\d+)(?:[\.,]\d{1,2})?)",
+                    r"\b563\b[\s:\-\.]*\b564\b[\s:\-\.]*([+-]?(?:\d{1,3}(?:[\.,]\d{3})+|\d+)(?:[\.,]\d{1,4})?)",
                     texto_1_2_3,
                 )
                 if match_564:
