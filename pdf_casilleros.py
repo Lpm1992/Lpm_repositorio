@@ -71,11 +71,53 @@ def extraer_texto_pdf(ruta_pdf: str) -> str:
     return "\n".join(bloques)
 
 
-def detectar_mes(nombre_archivo: str, meses: list[str]) -> Optional[str]:
-    nombre_upper = nombre_archivo.upper()
+def detectar_mes_desde_texto(texto: str, meses: list[str], anio: Optional[str] = None) -> Optional[str]:
+    texto_upper = texto.upper()
+
+    # 1) Buscar abreviaturas explícitas (ENE, FEB, ...).
     for mes in meses:
-        if mes in nombre_upper:
+        if re.search(rf"\b{mes}\b", texto_upper):
             return mes
+
+    # 2) Buscar nombres completos de mes.
+    meses_nombre = {
+        "ENERO": "ENE",
+        "FEBRERO": "FEB",
+        "MARZO": "MAR",
+        "ABRIL": "ABR",
+        "MAYO": "MAY",
+        "JUNIO": "JUN",
+        "JULIO": "JUL",
+        "AGOSTO": "AGO",
+        "SEPTIEMBRE": "SEP",
+        "SETIEMBRE": "SEP",
+        "OCTUBRE": "OCT",
+        "NOVIEMBRE": "NOV",
+        "DICIEMBRE": "DIC",
+    }
+    for nombre, abrev in meses_nombre.items():
+        if re.search(rf"\b{nombre}\b", texto_upper):
+            return abrev
+
+    # 3) Buscar mes numérico en formatos comunes: MM/YYYY, YYYY-MM, PERIODO: 03-2025, etc.
+    patrones = [
+        r"\b(0?[1-9]|1[0-2])[\/\-.](20\d{2})\b",  # 03/2025
+        r"\b(20\d{2})[\/\-.](0?[1-9]|1[0-2])\b",  # 2025-03
+    ]
+
+    for patron in patrones:
+        for match in re.finditer(patron, texto_upper):
+            grupos = match.groups()
+            if len(grupos) == 2:
+                if len(grupos[0]) == 4:  # YYYY-MM
+                    anio_en_texto, mes_num = grupos[0], grupos[1]
+                else:  # MM-YYYY
+                    mes_num, anio_en_texto = grupos[0], grupos[1]
+
+                if anio is None or anio_en_texto == anio:
+                    idx = int(mes_num) - 1
+                    if 0 <= idx < len(meses):
+                        return meses[idx]
     return None
 
 
@@ -128,10 +170,9 @@ def procesar_declaraciones(carpeta: str) -> tuple[dict, list[str]]:
                 continue
 
             ruta_pdf = os.path.join(root_dir, archivo)
-            mes_detectado = detectar_mes(archivo, meses)
-
             try:
                 texto = extraer_texto_pdf(ruta_pdf)
+                mes_detectado = detectar_mes_desde_texto(texto, meses, anio)
 
                 if len(texto.strip()) < 50:
                     advertencias.append(
@@ -140,7 +181,7 @@ def procesar_declaraciones(carpeta: str) -> tuple[dict, list[str]]:
                     continue
 
                 if not mes_detectado:
-                    advertencias.append(f"⚠ {anio} - {archivo}: no se detectó mes en el nombre.")
+                    advertencias.append(f"⚠ {anio} - {archivo}: no se detectó mes dentro del contenido del PDF.")
                     continue
 
                 # Admite montos con separadores de miles y decimales mixtos.
