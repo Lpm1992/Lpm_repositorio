@@ -17,9 +17,9 @@ Script para inspeccionar estructura básica de un PDF:
 node pdf_structure_reader.js ruta/al/archivo.pdf
 ```
 
-## Lector de texto PDF por carpeta (Python)
+## Lector de texto PDF (Python, selección de archivo)
 
-Script para recorrer una carpeta y subcarpetas, abrir cada PDF y extraer texto por página.
+Script para escoger un PDF y extraer texto por página.
 
 ### Requisitos
 
@@ -27,10 +27,16 @@ Script para recorrer una carpeta y subcarpetas, abrir cada PDF y extraer texto p
 pip install PyPDF2
 ```
 
-### Uso
+### Uso interactivo (abre selector de archivo)
 
 ```bash
-python pdf_text_reader.py "C:/Users/LIZ/Desktop/DECLARACIONES"
+python pdf_text_reader.py
+```
+
+### Uso con ruta directa
+
+```bash
+python pdf_text_reader.py "C:/Users/LIZ/Desktop/DECLARACIONES/archivo.pdf"
 ```
 
 ### Nota
