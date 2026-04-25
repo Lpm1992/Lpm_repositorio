@@ -1,9 +1,9 @@
 # Lpm_repositorio
 Repositorio de pruebas codex.
 
-## Lector de estructura PDF
+## Lector de estructura PDF (Node.js)
 
-Se añadió un script en Node.js para inspeccionar la estructura básica de un PDF:
+Script para inspeccionar estructura básica de un PDF:
 
 - versión PDF
 - objetos indirectos (`obj`)
@@ -17,4 +17,22 @@ Se añadió un script en Node.js para inspeccionar la estructura básica de un P
 node pdf_structure_reader.js ruta/al/archivo.pdf
 ```
 
-El script imprimirá un resumen y una vista previa de los primeros objetos detectados.
+## Lector de texto PDF por carpeta (Python)
+
+Script para recorrer una carpeta y subcarpetas, abrir cada PDF y extraer texto por página.
+
+### Requisitos
+
+```bash
+pip install PyPDF2
+```
+
+### Uso
+
+```bash
+python pdf_text_reader.py "C:/Users/LIZ/Desktop/DECLARACIONES"
+```
+
+### Nota
+
+Si un PDF está escaneado como imagen, `PyPDF2` puede no extraer texto (en ese caso necesitarías OCR).
