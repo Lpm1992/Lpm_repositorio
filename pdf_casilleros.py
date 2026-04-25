@@ -61,17 +61,20 @@ def limpiar_numero(valor: str) -> float:
         return 0.0
 
 
-def extraer_texto_pdf(ruta_pdf: str) -> tuple[str, str]:
+def extraer_texto_pdf(ruta_pdf: str) -> tuple[str, str, str]:
     reader = PdfReader(ruta_pdf)
     primera_pagina = ""
+    pagina_tres = ""
     bloques = []
     for indice, pagina in enumerate(reader.pages):
         contenido = pagina.extract_text()
         if contenido:
             if indice == 0:
                 primera_pagina = contenido
+            if indice == 2:
+                pagina_tres = contenido
             bloques.append(contenido)
-    return primera_pagina, "\n".join(bloques)
+    return primera_pagina, "\n".join(bloques), pagina_tres
 
 
 def detectar_mes_periodo_fiscal_primera_pagina(
@@ -128,6 +131,39 @@ def detectar_mes_periodo_fiscal_primera_pagina(
     return None
 
 
+def extraer_casilleros_desde_pagina_tres(texto_pagina_tres: str, codigos: list[str]) -> dict[str, dict]:
+    """Extrae nombre + código + valor desde la página 3.
+
+    Soporta casos donde el valor viene pegado al código (ej. 615135.73).
+    """
+    if not texto_pagina_tres.strip():
+        return {}
+
+    encontrados: dict[str, dict] = {}
+    texto = texto_pagina_tres.replace("\r", "\n")
+
+    patron_valor = r"([+-]?(?:\d{1,3}(?:[\.,]\d{3})+|\d+)(?:[\.,]\d{1,2})?)"
+
+    for cod in codigos:
+        patron = re.compile(rf"(?<!\d){cod}\s*{patron_valor}")
+        match = patron.search(texto)
+        if not match:
+            continue
+
+        inicio = match.start()
+        salto_previo = texto.rfind("\n", 0, inicio)
+        nombre = texto[salto_previo + 1:inicio].strip(" .:-\t")
+        valor = limpiar_numero(match.group(1))
+
+        encontrados[cod] = {
+            "CASILLERO": cod,
+            "NOMBRE": re.sub(r"\s+", " ", nombre),
+            "VALOR": valor,
+        }
+
+    return encontrados
+
+
 def procesar_declaraciones(carpeta: str) -> tuple[dict, list[str]]:
     casilleros = [
         "411", "421", "510", "520", "511", "521", "512", "522", "513", "523", "514", "524", "515", "525",
@@ -178,7 +214,7 @@ def procesar_declaraciones(carpeta: str) -> tuple[dict, list[str]]:
 
             ruta_pdf = os.path.join(root_dir, archivo)
             try:
-                texto_primera_pagina, texto = extraer_texto_pdf(ruta_pdf)
+                texto_primera_pagina, texto, texto_pagina_tres = extraer_texto_pdf(ruta_pdf)
                 mes_detectado = detectar_mes_periodo_fiscal_primera_pagina(
                     texto_primera_pagina,
                     meses,
@@ -205,6 +241,14 @@ def procesar_declaraciones(carpeta: str) -> tuple[dict, list[str]]:
                 for cod, valor in patron.findall(texto):
                     if cod in datos_por_anio[anio]:
                         datos_por_anio[anio][cod][mes_detectado] = limpiar_numero(valor)
+
+                # Corrección específica para página 3:
+                # extraer nombre + casillero + valor (incluso cuando están pegados).
+                codigos_pagina_tres = ["601", "602", "605", "606", "609", "613", "615", "617"]
+                extraidos_p3 = extraer_casilleros_desde_pagina_tres(texto_pagina_tres, codigos_pagina_tres)
+                for cod, detalle in extraidos_p3.items():
+                    if cod in datos_por_anio[anio]:
+                        datos_por_anio[anio][cod][mes_detectado] = detalle["VALOR"]
 
                 # Refuerzo para casillero 564.
                 match_564 = re.search(
