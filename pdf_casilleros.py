@@ -61,25 +61,47 @@ def limpiar_numero(valor: str) -> float:
         return 0.0
 
 
-def extraer_texto_pdf(ruta_pdf: str) -> str:
+def extraer_texto_pdf(ruta_pdf: str) -> tuple[str, str]:
     reader = PdfReader(ruta_pdf)
+    primera_pagina = ""
     bloques = []
-    for pagina in reader.pages:
+    for indice, pagina in enumerate(reader.pages):
         contenido = pagina.extract_text()
         if contenido:
+            if indice == 0:
+                primera_pagina = contenido
             bloques.append(contenido)
-    return "\n".join(bloques)
+    return primera_pagina, "\n".join(bloques)
 
 
-def detectar_mes_desde_texto(texto: str, meses: list[str], anio: Optional[str] = None) -> Optional[str]:
-    texto_upper = texto.upper()
+def detectar_mes_periodo_fiscal_primera_pagina(
+    texto_primera_pagina: str,
+    meses: list[str],
+    anio_ruta: Optional[str] = None,
+) -> Optional[str]:
+    texto = texto_primera_pagina.upper()
 
-    # 1) Buscar abreviaturas explícitas (ENE, FEB, ...).
+    # Buscar únicamente el campo "PERIODO FISCAL: ...".
+    bloque_periodo = re.search(
+        r"PER[ÍI]ODO\s+FISCAL\s*:\s*([A-ZÁÉÍÓÚÑ]+|\d{1,2})[\s/\-.]+(20\d{2})",
+        texto,
+        re.IGNORECASE,
+    )
+    if not bloque_periodo:
+        return None
+
+    mes_token = bloque_periodo.group(1).upper()
+    anio_periodo = bloque_periodo.group(2)
+
+    if anio_ruta and anio_periodo != anio_ruta:
+        return None
+
+    # Mes en abreviatura.
     for mes in meses:
-        if re.search(rf"\b{mes}\b", texto_upper):
+        if mes_token == mes:
             return mes
 
-    # 2) Buscar nombres completos de mes.
+    # Mes en nombre completo.
     meses_nombre = {
         "ENERO": "ENE",
         "FEBRERO": "FEB",
@@ -95,29 +117,14 @@ def detectar_mes_desde_texto(texto: str, meses: list[str], anio: Optional[str] =
         "NOVIEMBRE": "NOV",
         "DICIEMBRE": "DIC",
     }
-    for nombre, abrev in meses_nombre.items():
-        if re.search(rf"\b{nombre}\b", texto_upper):
-            return abrev
+    if mes_token in meses_nombre:
+        return meses_nombre[mes_token]
 
-    # 3) Buscar mes numérico en formatos comunes: MM/YYYY, YYYY-MM, PERIODO: 03-2025, etc.
-    patrones = [
-        r"\b(0?[1-9]|1[0-2])[\/\-.](20\d{2})\b",  # 03/2025
-        r"\b(20\d{2})[\/\-.](0?[1-9]|1[0-2])\b",  # 2025-03
-    ]
-
-    for patron in patrones:
-        for match in re.finditer(patron, texto_upper):
-            grupos = match.groups()
-            if len(grupos) == 2:
-                if len(grupos[0]) == 4:  # YYYY-MM
-                    anio_en_texto, mes_num = grupos[0], grupos[1]
-                else:  # MM-YYYY
-                    mes_num, anio_en_texto = grupos[0], grupos[1]
-
-                if anio is None or anio_en_texto == anio:
-                    idx = int(mes_num) - 1
-                    if 0 <= idx < len(meses):
-                        return meses[idx]
+    # Mes numérico (ej: 02 2026 dentro de "PERIODO FISCAL: 02/2026").
+    if mes_token.isdigit():
+        idx = int(mes_token) - 1
+        if 0 <= idx < len(meses):
+            return meses[idx]
     return None
 
 
@@ -171,8 +178,12 @@ def procesar_declaraciones(carpeta: str) -> tuple[dict, list[str]]:
 
             ruta_pdf = os.path.join(root_dir, archivo)
             try:
-                texto = extraer_texto_pdf(ruta_pdf)
-                mes_detectado = detectar_mes_desde_texto(texto, meses, anio)
+                texto_primera_pagina, texto = extraer_texto_pdf(ruta_pdf)
+                mes_detectado = detectar_mes_periodo_fiscal_primera_pagina(
+                    texto_primera_pagina,
+                    meses,
+                    anio,
+                )
 
                 if len(texto.strip()) < 50:
                     advertencias.append(
@@ -181,7 +192,9 @@ def procesar_declaraciones(carpeta: str) -> tuple[dict, list[str]]:
                     continue
 
                 if not mes_detectado:
-                    advertencias.append(f"⚠ {anio} - {archivo}: no se detectó mes dentro del contenido del PDF.")
+                    advertencias.append(
+                        f"⚠ {anio} - {archivo}: no se detectó 'PERIODO FISCAL' válido en la primera página."
+                    )
                     continue
 
                 # Admite montos con separadores de miles y decimales mixtos.
