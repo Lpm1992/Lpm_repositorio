@@ -174,29 +174,37 @@ def extraer_valor_por_casillero(texto: str, codigo: str, codigos_validos: set[st
     - Soporta valores pegados al código (ej. 605103.88).
     - Si solo encuentra un entero de 3 dígitos que coincide con otro casillero, lo descarta.
     """
-    # 1) Caso pegado al código con decimal: 605103.88
-    patron_pegado_decimal = re.compile(
-        rf"(?<!\d){codigo}([+-]?(?:\d{{1,3}}(?:[\.,]\d{{3}})+|\d+)(?:[\.,]\d{{1,4}}))"
-    )
-    match = patron_pegado_decimal.search(texto)
-    if match:
-        return limpiar_numero(match.group(1))
+    def decimales_token(token: str) -> int:
+        ultima_coma = token.rfind(",")
+        ultimo_punto = token.rfind(".")
+        idx = max(ultima_coma, ultimo_punto)
+        if idx == -1:
+            return 0
+        dec = token[idx + 1:]
+        return len(dec) if dec.isdigit() else 99
 
-    # 2) Código seguido de separador + valor decimal.
-    patron_con_sep_decimal = re.compile(
-        rf"(?<!\d){codigo}\b[\s:\-\.]*([+-]?(?:\d{{1,3}}(?:[\.,]\d{{3}})+|\d+)(?:[\.,]\d{{1,4}}))"
-    )
-    match = patron_con_sep_decimal.search(texto)
-    if match:
-        return limpiar_numero(match.group(1))
+    # Buscar todas las apariciones del código y probar candidatos numéricos cercanos.
+    apariciones = list(re.finditer(rf"(?<!\d){codigo}", texto))
+    for aparicion in apariciones:
+        inicio = aparicion.end()
+        ventana = texto[inicio:inicio + 90]
 
-    # 3) Fallback entero (si no hay decimal). Evitar tomar otro código por error (ej: 412).
-    patron_entero = re.compile(rf"(?<!\d){codigo}\b[\s:\-\.]*([+-]?\d+)\b")
-    for match in patron_entero.finditer(texto):
-        entero = match.group(1)
-        if len(entero) == 3 and entero in codigos_validos:
-            continue
-        return limpiar_numero(entero)
+        # Todos los tokens numéricos cercanos (incluye casos pegados al código).
+        for token_match in re.finditer(r"[+-]?\d[\d\.,]*", ventana):
+            token = token_match.group(0).strip(".,;:)")
+            if not token:
+                continue
+
+            # Evitar confundir con otro casillero (ej. 411 -> 412).
+            if token.isdigit() and len(token) == 3 and token in codigos_validos:
+                continue
+
+            # Aceptar dinero con 0, 1 o 2 decimales; rechazar ruido tipo 0.00421.
+            dec = decimales_token(token)
+            if dec > 2:
+                continue
+
+            return limpiar_numero(token)
 
     return None
 
