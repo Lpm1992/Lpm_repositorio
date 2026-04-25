@@ -142,6 +142,12 @@ def extraer_valor_por_casillero(texto: str, codigo: str, codigos_validos: set[st
     # y 212.36520 -> 212.36 520
     texto_norm = re.sub(r"((?:\d+[\.,]\d{2}))(?=(\d{3})(?!\d))", r"\1 ", texto)
 
+    # Caso explícito: código + valor pegado (ej: 6098736.42)
+    patron_pegado = re.compile(rf"(?<!\d){codigo}([+-]?\d+(?:\.\d{{2}}|,\d{{2}}))")
+    match_pegado = patron_pegado.search(texto_norm)
+    if match_pegado:
+        return limpiar_numero(match_pegado.group(1))
+
     # Buscar solo montos en dólares con 2 decimales justo después del casillero.
     # Esto evita tomar enteros sueltos como "24" para casilleros monetarios.
     patron = re.compile(
