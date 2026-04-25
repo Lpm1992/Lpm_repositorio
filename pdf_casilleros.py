@@ -65,7 +65,7 @@ def extraer_texto_pdf(ruta_pdf: str) -> tuple[str, str, str]:
     reader = PdfReader(ruta_pdf)
     primera_pagina = ""
     pagina_tres = ""
-    bloques = []
+    bloques_1_2_3 = []
     for indice, pagina in enumerate(reader.pages):
         contenido = pagina.extract_text()
         if contenido:
@@ -73,8 +73,10 @@ def extraer_texto_pdf(ruta_pdf: str) -> tuple[str, str, str]:
                 primera_pagina = contenido
             if indice == 2:
                 pagina_tres = contenido
-            bloques.append(contenido)
-    return primera_pagina, "\n".join(bloques), pagina_tres
+            # Solo usar páginas 1, 2 y 3 para la búsqueda de casilleros.
+            if indice in (0, 1, 2):
+                bloques_1_2_3.append(contenido)
+    return primera_pagina, "\n".join(bloques_1_2_3), pagina_tres
 
 
 def detectar_mes_periodo_fiscal_primera_pagina(
@@ -214,14 +216,14 @@ def procesar_declaraciones(carpeta: str) -> tuple[dict, list[str]]:
 
             ruta_pdf = os.path.join(root_dir, archivo)
             try:
-                texto_primera_pagina, texto, texto_pagina_tres = extraer_texto_pdf(ruta_pdf)
+                texto_primera_pagina, texto_1_2_3, texto_pagina_tres = extraer_texto_pdf(ruta_pdf)
                 mes_detectado = detectar_mes_periodo_fiscal_primera_pagina(
                     texto_primera_pagina,
                     meses,
                     anio,
                 )
 
-                if len(texto.strip()) < 50:
+                if len(texto_1_2_3.strip()) < 50:
                     advertencias.append(
                         f"⚠ {anio} - {archivo}: PDF sin texto extraíble (posible escaneo/OCR requerido)."
                     )
@@ -238,7 +240,7 @@ def procesar_declaraciones(carpeta: str) -> tuple[dict, list[str]]:
                     r"\b(\d{3})\b\s*[\n\r:\-]*\s*([+-]?(?:\d{1,3}(?:[\.,]\d{3})+|\d+)(?:[\.,]\d{1,2})?)"
                 )
 
-                for cod, valor in patron.findall(texto):
+                for cod, valor in patron.findall(texto_1_2_3):
                     if cod in datos_por_anio[anio]:
                         datos_por_anio[anio][cod][mes_detectado] = limpiar_numero(valor)
 
@@ -253,7 +255,7 @@ def procesar_declaraciones(carpeta: str) -> tuple[dict, list[str]]:
                 # Refuerzo para casillero 564.
                 match_564 = re.search(
                     r"\b564\b\s*[\n\r:\-]*\s*([+-]?(?:\d{1,3}(?:[\.,]\d{3})+|\d+)(?:[\.,]\d{1,2})?)",
-                    texto,
+                    texto_1_2_3,
                 )
                 if match_564:
                     datos_por_anio[anio]["564"][mes_detectado] = limpiar_numero(match_564.group(1))
