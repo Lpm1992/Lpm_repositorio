@@ -138,51 +138,18 @@ def extraer_valor_por_casillero(texto: str, codigo: str, codigos_validos: set[st
     - Soporta valores pegados al código (ej. 605103.88).
     - Si solo encuentra un entero de 3 dígitos que coincide con otro casillero, lo descarta.
     """
-    def decimales_token(token: str) -> int:
-        ultima_coma = token.rfind(",")
-        ultimo_punto = token.rfind(".")
-        idx = max(ultima_coma, ultimo_punto)
-        if idx == -1:
-            return 0
-        dec = token[idx + 1:]
-        return len(dec) if dec.isdigit() else 99
+    # Normalizar uniones típicas de OCR/PDF: 0.00411 -> 0.00 411
+    # y 212.36520 -> 212.36 520
+    texto_norm = re.sub(r"((?:\d+[\.,]\d{2}))(?=(\d{3})(?!\d))", r"\1 ", texto)
 
-    # Buscar todas las apariciones del código y probar candidatos muy cercanos.
-    apariciones = list(re.finditer(rf"(?<!\d){codigo}", texto))
-    for aparicion in apariciones:
-        inicio = aparicion.end()
-        ventana = texto[inicio:inicio + 35]
-
-        # Si aparece en una fórmula tipo +521+534+..., ignorar esta aparición.
-        if re.match(r"^\s*[\+\-]\d{3}", ventana):
-            continue
-
-        # Todos los tokens numéricos cercanos (incluye casos pegados al código).
-        for idx_token, token_match in enumerate(re.finditer(r"[+-]?\d[\d\.,]*", ventana)):
-            # Limitar cantidad de tokens inspeccionados para evitar saltar
-            # a montos lejanos de otras columnas.
-            if idx_token >= 3:
-                break
-
-            # Si el token está demasiado lejos del código, no tomarlo.
-            if token_match.start() > 16:
-                continue
-
-            token = token_match.group(0).strip(".,;:)")
-            if not token:
-                continue
-
-            # Evitar confundir con otro casillero (ej. 411 -> 412).
-            if token.isdigit() and len(token) == 3 and token in codigos_validos:
-                continue
-
-            # Aceptar dinero con exactamente 2 decimales.
-            # Se permite entero 0 como fallback (OCR a veces omite .00).
-            dec = decimales_token(token)
-            if dec != 2 and token not in {"0", "+0", "-0"}:
-                continue
-
-            return limpiar_numero(token)
+    # Buscar solo montos en dólares con 2 decimales justo después del casillero.
+    # Esto evita tomar enteros sueltos como "24" para casilleros monetarios.
+    patron = re.compile(
+        rf"(?<!\d){codigo}\s*([+-]?(?:\d{{1,3}}(?:[\.,]\d{{3}})*|\d+)[\.,]\d{{2}})"
+    )
+    matches = patron.findall(texto_norm)
+    if matches:
+        return limpiar_numero(matches[0])
 
     return None
 
