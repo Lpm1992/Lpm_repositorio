@@ -61,22 +61,19 @@ def limpiar_numero(valor: str) -> float:
         return 0.0
 
 
-def extraer_texto_pdf(ruta_pdf: str) -> tuple[str, str, str]:
+def extraer_texto_pdf(ruta_pdf: str) -> tuple[str, str]:
     reader = PdfReader(ruta_pdf)
     primera_pagina = ""
-    pagina_tres = ""
     bloques_1_2_3 = []
     for indice, pagina in enumerate(reader.pages):
         contenido = pagina.extract_text()
         if contenido:
             if indice == 0:
                 primera_pagina = contenido
-            if indice == 2:
-                pagina_tres = contenido
             # Solo usar páginas 1, 2 y 3 para la búsqueda de casilleros.
             if indice in (0, 1, 2):
                 bloques_1_2_3.append(contenido)
-    return primera_pagina, "\n".join(bloques_1_2_3), pagina_tres
+    return primera_pagina, "\n".join(bloques_1_2_3)
 
 
 def detectar_mes_periodo_fiscal_primera_pagina(
@@ -133,39 +130,6 @@ def detectar_mes_periodo_fiscal_primera_pagina(
     return None
 
 
-def extraer_casilleros_desde_pagina_tres(texto_pagina_tres: str, codigos: list[str]) -> dict[str, dict]:
-    """Extrae nombre + código + valor desde la página 3.
-
-    Soporta casos donde el valor viene pegado al código (ej. 615135.73).
-    """
-    if not texto_pagina_tres.strip():
-        return {}
-
-    encontrados: dict[str, dict] = {}
-    texto = texto_pagina_tres.replace("\r", "\n")
-
-    patron_valor = r"([+-]?(?:\d{1,3}(?:[\.,]\d{3})+|\d+)(?:[\.,]\d{1,2})?)"
-
-    for cod in codigos:
-        patron = re.compile(rf"(?<!\d){cod}\s*{patron_valor}")
-        match = patron.search(texto)
-        if not match:
-            continue
-
-        inicio = match.start()
-        salto_previo = texto.rfind("\n", 0, inicio)
-        nombre = texto[salto_previo + 1:inicio].strip(" .:-\t")
-        valor = limpiar_numero(match.group(1))
-
-        encontrados[cod] = {
-            "CASILLERO": cod,
-            "NOMBRE": re.sub(r"\s+", " ", nombre),
-            "VALOR": valor,
-        }
-
-    return encontrados
-
-
 def extraer_valor_por_casillero(texto: str, codigo: str, codigos_validos: set[str]) -> Optional[float]:
     """Extrae el valor de un casillero evitando confundirlo con otros códigos.
 
@@ -199,9 +163,10 @@ def extraer_valor_por_casillero(texto: str, codigo: str, codigos_validos: set[st
             if token.isdigit() and len(token) == 3 and token in codigos_validos:
                 continue
 
-            # Aceptar dinero con 0, 1 o 2 decimales; rechazar ruido tipo 0.00421.
+            # Aceptar dinero con exactamente 2 decimales.
+            # Se permite entero 0 como fallback (OCR a veces omite .00).
             dec = decimales_token(token)
-            if dec > 2:
+            if dec != 2 and token not in {"0", "+0", "-0"}:
                 continue
 
             return limpiar_numero(token)
@@ -260,7 +225,7 @@ def procesar_declaraciones(carpeta: str) -> tuple[dict, list[str]]:
 
             ruta_pdf = os.path.join(root_dir, archivo)
             try:
-                texto_primera_pagina, texto_1_2_3, texto_pagina_tres = extraer_texto_pdf(ruta_pdf)
+                texto_primera_pagina, texto_1_2_3 = extraer_texto_pdf(ruta_pdf)
                 mes_detectado = detectar_mes_periodo_fiscal_primera_pagina(
                     texto_primera_pagina,
                     meses,
@@ -285,14 +250,6 @@ def procesar_declaraciones(carpeta: str) -> tuple[dict, list[str]]:
                     valor_cod = extraer_valor_por_casillero(texto_1_2_3, cod, codigos_validos)
                     if valor_cod is not None:
                         datos_por_anio[anio][cod][mes_detectado] = valor_cod
-
-                # Corrección específica para página 3:
-                # extraer nombre + casillero + valor (incluso cuando están pegados).
-                codigos_pagina_tres = ["601", "602", "605", "606", "609", "613", "615", "617"]
-                extraidos_p3 = extraer_casilleros_desde_pagina_tres(texto_pagina_tres, codigos_pagina_tres)
-                for cod, detalle in extraidos_p3.items():
-                    if cod in datos_por_anio[anio]:
-                        datos_por_anio[anio][cod][mes_detectado] = detalle["VALOR"]
 
                 # Refuerzo extra para casillero 564 (siempre debe intentar leerse de la línea
                 # "... 563 564 <valor>", por ejemplo 31.85).
@@ -323,6 +280,7 @@ def exportar_excel(carpeta: str, datos_por_anio: dict) -> str:
         "550", "560", "564", "601", "602", "605", "606", "609", "613", "615", "617"
     ]
     meses = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC"]
+    excluidos_resumen = {"601", "602", "615", "617"}
 
     ruta_excel = os.path.join(carpeta, "reporte_casilleros_por_anio.xlsx")
     resumen = []
@@ -333,7 +291,7 @@ def exportar_excel(carpeta: str, datos_por_anio: dict) -> str:
             df.to_excel(writer, sheet_name=anio, index=False)
 
             for cod in casilleros:
-                total = sum(datos[cod][mes] for mes in meses)
+                total = 0.0 if cod in excluidos_resumen else sum(datos[cod][mes] for mes in meses)
                 resumen.append({"AÑO": anio, "CASILLERO": cod, "TOTAL": round(total, 2)})
 
         df_resumen = pd.DataFrame(resumen)
